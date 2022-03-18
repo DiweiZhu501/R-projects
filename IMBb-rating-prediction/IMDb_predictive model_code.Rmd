@@ -15,7 +15,7 @@ library(car)
 
 ### 1. Importing dataset
 ```{r importing data}
-df <- read.csv("C:/YICHEN WANG/Course/2021 FALL/MGSC661/project/film.csv")
+df <- read.csv("film.csv")
 attach(df)
 ```
 
