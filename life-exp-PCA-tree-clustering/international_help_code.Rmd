@@ -1,0 +1,220 @@
+---
+title: "Final Project"
+author: "Diwei Zhu"
+date: "2021/12/10"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library}
+# install.packages("dplyr")
+# install.packages("ggcorrplot")
+# install.packages("GGally")
+# install.packages("ggfortify")
+# install.packages("cluster")
+# pkgs <- c("factoextra",  "NbClust")
+# install.packages(pkgs)
+# install.packages("gbm")
+# install.packages("sqldf")
+library(dplyr)
+library(ggcorrplot)
+library(ggplot2)
+library(GGally)
+library(ggfortify)
+library(cluster)
+library(factoextra)
+library(NbClust)
+library(tree)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(gbm)
+library(sqldf)
+```
+
+```{r import}
+df <- read.csv("C:/Users/admin/Desktop/Country-data.csv")
+colnames(df)
+attach(df)
+```
+
+## SECTION 1 - Dataset exploration
+
+```{r 1.1 - boxplots, fig.width = 8, fig.asp = .62}
+# get list of column names
+colname <- colnames(df)
+col_list <- c()
+for (i in 1:10) {
+  x = strsplit(colname,"[[:space:]]")[[i]][1]
+  col_list <- c(col_list, x)
+}
+
+# getting boxplots
+par(mfrow=c(3,3))
+boxplot(child_mort, main = "boxplot of child_mort", col="skyblue3", outcol="skyblue3", boxcol="darkorange2", whiskcol="darkorange2", medcol="darkorange2", staplecol="darkorange2")
+
+boxplot(exports, main = "boxplot of exports", col="skyblue3", outcol="skyblue3", boxcol="darkorange2", whiskcol="darkorange2", medcol="darkorange2", staplecol="darkorange2")
+
+boxplot(health_spending, main = "boxplot of health_spending", col="skyblue3", outcol="skyblue3", boxcol="darkorange2", whiskcol="darkorange2", medcol="darkorange2", staplecol="darkorange2")
+
+boxplot(imports, main = "boxplot of imports", col="skyblue3", outcol="skyblue3", boxcol="darkorange2", whiskcol="darkorange2", medcol="darkorange2", staplecol="darkorange2")
+
+boxplot(income, main = "boxplot of income", col="skyblue3", outcol="skyblue3", boxcol="darkorange2", whiskcol="darkorange2", medcol="darkorange2", staplecol="darkorange2")
+
+boxplot(inflation, main = "boxplot of inflation", col="skyblue3", outcol="skyblue3", boxcol="darkorange2", whiskcol="darkorange2", medcol="darkorange2", staplecol="darkorange2")
+
+boxplot(life_exp, main = "boxplot of life_exp", col="skyblue3", outcol="skyblue3", boxcol="darkorange2", whiskcol="darkorange2", medcol="darkorange2", staplecol="darkorange2")
+
+boxplot(fertility, main = "boxplot of fertility", col="skyblue3", outcol="skyblue3", boxcol="darkorange2", whiskcol="darkorange2", medcol="darkorange2", staplecol="darkorange2")
+
+boxplot(gdpp, main = "boxplot of gdpp", col="skyblue3", outcol="skyblue3", boxcol="darkorange2", whiskcol="darkorange2", medcol="darkorange2", staplecol="darkorange2")
+```
+
+```{r 1.2 - life_exp}
+# summary of life_exp
+summary(life_exp)
+
+# countries with low life_exp
+sqldf("SELECT country, life_exp FROM df
+      ORDER BY life_exp
+      LIMIT 3")
+```
+
+
+```{r 1.3 - correlation figure}
+# get all numerical variables
+numerical_var <- select_if(df, is.numeric)
+
+# build correlation matrix and visualize
+corr = cor(numerical_var)
+corr <- round(corr, 4)
+corr
+ggcorrplot(corr, type="lower", ggtheme = ggplot2::theme_gray, colors = c("skyblue3", "white", "darkorange2"))
+```
+
+## SECTION 2 - Data cleaning
+
+```{r 2.1 - numerical value}
+# drop the non-numerical column "country"
+drops <- "country"
+df_num <- df[ , !(names(df) %in% drops)]
+head(df_num)
+```
+
+```{r 2.2 - standardization}
+# scaling numeric variables
+df_std <- scale(df_num) 
+head(df_std)
+
+# Use standardized data for clustering
+```
+
+## SECTION 3 - PCA
+
+```{r 3.1 - PCA }
+pca <- prcomp(df_num, scale=TRUE)
+pca
+
+autoplot(pca, data = df_std, loadings = TRUE, loadings.label = TRUE, col="skyblue3", loadings.colour= "darkorange2", loadings.label.colour = "darkorange2", main = "PCA")
+
+# imports/exports may can be not considered (orthogonal)
+# positive: gdpp/income, health_spending 
+# negative: fertility/child_mort, inflation
+```
+
+## SECTION 4 - Tree-based method to verify the powers of the features in predicting life_exp
+
+```{r 4.1 - Feature importance selection}
+# Random Forest
+forest_feature = randomForest(life_exp~exports+imports+health_spending+inflation+income+gdpp+fertility, ntree=10000, data=df_num, importance=TRUE, na.action=na.omit)
+
+forest_feature
+# return importance
+importance(forest_feature)
+varImpPlot(forest_feature)
+# MSE = 36
+```
+
+
+```{r 4.2 - based on selection result and PCA result, we include 2 features, BOOSTING}
+# Boosting
+set.seed(1) 
+boosted = gbm(life_exp~income+fertility, data=df_num, distribution="gaussian",n.trees=10000, interaction.depth=4)
+summary(boosted) 
+
+# get MSE
+predicted_score2=predict(boosted, newdata=df_num, n.trees=10000)
+MSE <- mean((predicted_score2 - life_exp)^2) 
+MSE
+```
+
+
+```{r 4.3 - Decision Tree}
+# build decision tree
+mytree=rpart(life_exp~income+fertility,control=rpart.control(cp=0.01))
+
+# verify optimal cp value
+opt_cp = mytree$cptable[which.min(mytree$cptable[,"xerror"]),"CP"]
+print(opt_cp)
+
+# print result and draw the tree
+rpart.plot(mytree)
+summary(mytree)
+```
+
+
+## SECTION 5 - Clustering
+
+```{r 5.1 - Elbow}
+# find the number of clusters we'll need to use
+
+# Elbow
+fviz_nbclust(df_std, FUN = hcut, method = "wss")
+```
+
+
+```{r 5.2 - create clusters}
+# K-Means with k=3
+km3 <- kmeans(df_std, 3)
+clusters_info <- km3$cluster
+
+# Adding cluster classification to dataset as a column
+df_clustered <- mutate(df, cluster = clusters_info)
+head(df_clustered)
+```
+
+
+```{r 5.3 - view cluster centers}
+# printing out the cluster centroids
+centroids <- df_clustered %>%
+    group_by(cluster) %>% # Grouping by the respective country group
+    summarise(n = n(), # Listing all the variables and calculating their means
+        child_mort = mean(child_mort),
+        exports = mean(exports),
+        health_spending = mean(health_spending),
+        imports = mean(imports),
+        income = mean(income),
+        inflation = mean(inflation),
+        life_exp = mean(life_exp),
+        fertility = mean(fertility),
+        gdpp = mean(gdpp))
+
+centroids
+```
+
+```{r 5.4 - find countries most-in-need}
+# find countries most in need for help based on the order of per capita income
+sqldf("SELECT country, income, fertility, child_mort, life_exp
+      FROM df_clustered 
+      WHERE cluster == 3 
+      ORDER BY income
+      LIMIT 5")
+```
+
+
+
